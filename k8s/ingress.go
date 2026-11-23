@@ -8,13 +8,14 @@ import (
 )
 
 type Ingress struct {
-	Name         string   `json:"name"`
-	Namespace    string   `json:"namespace"`
-	IngressClass string   `json:"ingressClass"`
-	Plugins      []string `json:"plugins"`
-	Paths        []Path   `json:"paths"`
-	CreationTime string   `json:"creationTime"`
-	LoadBalancer string   `json:"loadBalancer"`
+	Manifest     networking.Ingress `json:"manifest"`
+	Name         string             `json:"name"`
+	Namespace    string             `json:"namespace"`
+	IngressClass string             `json:"ingressClass"`
+	Plugins      []string           `json:"plugins"`
+	Paths        []Path             `json:"paths"`
+	CreationTime string             `json:"creationTime"`
+	LoadBalancer string             `json:"loadBalancer"`
 }
 
 type Path struct {
@@ -28,8 +29,11 @@ type Path struct {
 func mapIngresses(items []networking.Ingress) []Ingress {
 	out := make([]Ingress, 0, len(items))
 	for _, item := range items {
+		// Items in an IngressList can omit their individual type metadata.
+		item.APIVersion, item.Kind = networking.SchemeGroupVersion.String(), "Ingress"
 		ing := Ingress{
-			Name: item.Name, Namespace: item.Namespace, IngressClass: "N/A",
+			Manifest: item,
+			Name:     item.Name, Namespace: item.Namespace, IngressClass: "N/A",
 			Plugins: []string{}, Paths: []Path{}, CreationTime: item.CreationTimestamp.String(),
 		}
 		if item.Spec.IngressClassName != nil {
