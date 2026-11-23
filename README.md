@@ -75,12 +75,20 @@ arrancar. Los archivos contienen credenciales: limita el acceso al volumen.
 
 ## Explorar el panel
 
+- **Tema:** pulsa el sol para pasar al tema claro o la luna para volver al oscuro.
+  El botón está en la pantalla de conexión y en la barra superior. El navegador
+  recuerda tu elección; la primera visita usa el tema oscuro.
 - **Dashboard:** busca por host, servicio, ruta o nombre de Ingress. Los filtros
   de la barra lateral se aplican también a los contadores.
 - **Graph View:** selecciona un nodo para resaltar sus vecinos y abrir sus
   detalles. Arrastra para desplazarte y usa la rueda para acercarte. **Fit
   view** centra el mapa; **Overview only** muestra solo clúster, namespaces e
   Ingresses. Los servicios se deducen de los backends referenciados.
+- **Manifiesto:** al seleccionar un elemento, el panel de detalles se abre en
+  **YAML**. Pulsa **JSON** para ver el mismo objeto en ese formato. Para hosts,
+  clúster y contadores, el selector permite elegir entre los Ingresses asociados.
+  Para ver un Namespace, Service o plugin de Kong se necesita permiso `get` sobre
+  ese recurso; si no está disponible, el panel muestra el Ingress que lo referencia.
 - **Refresh / Auto 30s:** ambos comparten la consulta en curso. Si falla una
   actualización, el panel conserva los últimos datos válidos de ese contexto
   y muestra su hora. Una actualización normal conserva el filtro y el zoom.
