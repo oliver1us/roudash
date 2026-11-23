@@ -1,4 +1,4 @@
-FROM golang:1.26.4 AS build
+FROM --platform=$BUILDPLATFORM golang:1.26.4 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -7,7 +7,10 @@ COPY auth/ auth/
 COPY handlers/ handlers/
 COPY k8s/ k8s/
 COPY persist/ persist/
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/roudash .
+ARG TARGETOS
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -trimpath -ldflags="-s -w" -o /out/roudash .
 RUN mkdir -m 700 /out/data
 
 FROM gcr.io/distroless/static-debian12:nonroot
