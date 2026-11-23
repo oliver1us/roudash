@@ -42,6 +42,11 @@ button,select {font-family:inherit}
 .eyebrow,.section-title,.folder-count,.breadcrumbs,.badge,.detail-value,.stat-info .value,.routes-table,.last-refresh,.graph-footer,.setup-logo-text p,.section-intro p {font-family:var(--mono)}
 .eyebrow {font-size:.65rem; color:var(--accent); letter-spacing:.14em; font-weight:700}
 .sidebar-footer,.toolbar,.graph-toolbar,.graph-footer {background:var(--bg-sidebar)}
+.left-sidebar {position:relative}
+.sidebar-resizer {position:absolute; inset:0 -5px 0 auto; width:10px; cursor:col-resize; touch-action:none; user-select:none}
+.sidebar-resizer::after {content:""; position:absolute; inset:0 4px; background:transparent}
+.sidebar-resizer:hover::after,.sidebar-resizer:focus-visible::after,.sidebar-resizer:active::after {background:var(--accent)}
+.left-sidebar.collapsed .sidebar-resizer {display:none}
 .folder-list li {justify-content:flex-start; gap:.45rem}
 .folder-list .badge-count {margin-left:auto}
 .toolbar {min-height:58px; height:auto; gap:.7rem}
@@ -133,6 +138,7 @@ button,select {font-family:inherit}
     .search-box {width:clamp(135px,16vw,220px)}
 }
 @media (max-width:800px) {
+    .sidebar-resizer {display:none}
     .left-sidebar,.left-sidebar.collapsed {position:absolute; inset:0 auto 0 0; margin:0; transform:translateX(-100%); pointer-events:none; z-index:21; visibility:hidden}
     .left-sidebar.mobile-open {transform:none; pointer-events:auto; visibility:visible}
     .mobile-open + .nav-scrim {display:block; position:absolute; inset:0; border:0; background:#0008; z-index:20}
