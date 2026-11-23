@@ -11,7 +11,7 @@ import (
 
 const rotation = 30 * time.Second
 
-var actions = [...]string{"ingresses", "status", "contexts", "context", "kubeconfig", "incluster"}
+var actions = [...]string{"ingresses", "manifest", "status", "contexts", "context", "kubeconfig", "incluster"}
 
 // RouteObfuscator preserves the browser's routing protocol. It is not authentication:
 // the current paths are included in the publicly served page.
