@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+
 	"roudash/auth"
 	"roudash/k8s"
 	"roudash/persist"
@@ -79,6 +81,8 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.useInCluster(w, r)
 	case "ingresses":
 		s.ingresses(w, r)
+	case "manifest":
+		s.manifest(w, r)
 	}
 }
 
@@ -119,6 +123,23 @@ func (s *server) ingresses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "success", "data": ingresses})
+}
+
+func (s *server) manifest(w http.ResponseWriter, r *http.Request) {
+	if !allow(w, r, http.MethodGet) {
+		return
+	}
+	q := r.URL.Query()
+	object, err := s.manager.GetManifest(r.Context(), q.Get("kind"), q.Get("namespace"), q.Get("name"))
+	if err != nil {
+		code := http.StatusBadGateway
+		if status, ok := err.(apierrors.APIStatus); ok && status.Status().Code >= 400 && status.Status().Code < 600 {
+			code = int(status.Status().Code)
+		}
+		apiError(w, code, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, object)
 }
 
 func allow(w http.ResponseWriter, r *http.Request, methods ...string) bool {
