@@ -132,7 +132,7 @@ func TestEmbeddedPageWithObfuscatedRoutes(t *testing.T) {
 		t.Fatal("embedded page did not receive its routes")
 	}
 	var routes map[string]string
-	if err := json.Unmarshal(match[1], &routes); err != nil || len(routes) != 6 {
+	if err := json.Unmarshal(match[1], &routes); err != nil || routes["manifest"] == "" || len(routes) != 7 {
 		t.Fatalf("invalid routes: %v (%v)", routes, err)
 	}
 	request(t, s, "GET", "/status", "", nil, 401)
