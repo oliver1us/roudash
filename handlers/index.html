@@ -1,0 +1,1368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RouDash</title>
+    <meta name="description" content="RouDash — Real-time Kubernetes Ingress Dashboard — Obsidian-style workspace with graph views, detailed stats, and interactive topology.">
+    <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
+    <link rel="icon" href="/assets/mark.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/assets/base.css">
+    <link rel="stylesheet" href="/assets/workspace.css">
+    <script defer src="/assets/vendor/vis-network.min.js"></script>
+    <script defer src="/assets/topology.js"></script>
+    <script defer src="/assets/sync.js"></script>
+</head>
+<body>
+
+<!-- ── PERSIST WARNING BANNER ──────────────────────────────────── -->
+<div id="persistBanner">
+    <svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#alert"></use></svg> Kubeconfig persistence is ON. Secure this volume to protect Kubernetes credentials.
+</div>
+
+<!-- ── SETUP OVERLAY ───────────────────────────────────────────── -->
+<div id="setupOverlay">
+    <div class="setup-card">
+        <div class="setup-logo">
+            <img class="brand-mark" src="/assets/mark.svg" alt="">
+            <div class="setup-logo-text">
+                <h2>RouDash</h2>
+                <p class="eyebrow">Kubernetes route explorer</p>
+            </div>
+            <button class="toolbar-btn setup-dismiss" id="setupDismiss" type="button" aria-label="Return to workspace" onclick="hideSetup()" hidden>×</button>
+        </div>
+
+        <h1 class="connect-title">Connect a cluster</h1>
+        <p class="setup-lead">Open your workspace to trace routes from host to service.</p>
+        <div class="route-preview" aria-hidden="true">
+            <span><svg class="glyph"><use href="/assets/icons.svg#host"></use></svg>Host</span><i></i>
+            <span><svg class="glyph"><use href="/assets/icons.svg#ingress"></use></svg>Ingress</span><i></i>
+            <span><svg class="glyph"><use href="/assets/icons.svg#service"></use></svg>Service</span>
+        </div>
+        <div class="setup-tabs">
+            <button class="setup-tab active" id="tabUpload" onclick="showTab('upload')"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#file"></use></svg> Upload Kubeconfig</button>
+            <button class="setup-tab" id="tabIncluster" onclick="showTab('incluster')"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#cloud"></use></svg> In-Cluster SA</button>
+        </div>
+
+        <!-- Upload tab -->
+        <div class="tab-panel active" id="panelUpload">
+            <div id="uploadStep">
+                <div class="dropzone" id="dropzone">
+                    <input type="file" id="fileInput" accept=".yaml,.yml,.json" onchange="handleFileSelect(this)">
+                    <div class="dropzone-icon"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#upload"></use></svg></div>
+                    <p>Drop kubeconfig here or <span>click to browse</span></p>
+                    <p style="font-size:0.7rem; color: var(--text-muted); margin-top:0.3rem;">YAML/JSON · Max 1 MiB</p>
+                </div>
+                <div id="fileName"></div>
+
+                <div class="form-group">
+                    <label for="kubeconfigName">Config name (optional)</label>
+                    <input type="text" id="kubeconfigName" class="form-input" placeholder="e.g. production, staging…">
+                </div>
+
+                <div class="save-toggle" id="saveToggle">
+                    <input type="checkbox" id="saveToDisk">
+                    <label for="saveToDisk" style="color:var(--color-plugin); cursor:pointer; font-size:0.75rem;">
+                        Save kubeconfig to disk (persist mode)
+                    </label>
+                </div>
+
+                <div class="setup-error" id="uploadError"></div>
+                <button class="btn btn-primary" id="uploadBtn" onclick="uploadKubeconfig()" disabled>
+                    Connect Cluster →
+                </button>
+            </div>
+
+            <!-- Context selection step -->
+            <div id="contextStep">
+                <p style="color:var(--text-secondary); font-size:0.8rem; margin-bottom:0.4rem;">
+                    Select a context to activate:
+                </p>
+                <ul class="context-list" id="contextList"></ul>
+                <div class="setup-error" id="contextError"></div>
+                <button class="btn btn-primary" id="activateBtn" onclick="activateContext()" disabled>
+                    Open Workspace →
+                </button>
+                <button class="btn btn-secondary" style="margin-top:0.4rem" onclick="resetSetup()">
+                    ← Upload different file
+                </button>
+            </div>
+        </div>
+
+        <!-- In-cluster tab -->
+        <div class="tab-panel" id="panelIncluster">
+            <div style="text-align:center; padding:1rem 0;">
+                <div style="font-size:2.5rem; margin-bottom:0.8rem;"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#cloud"></use></svg></div>
+                <p style="color:var(--text-secondary); font-size:0.8rem; line-height:1.5;">
+                    Use the local Pod Service Account token.<br>
+                    Requires dashboard to run inside a Kubernetes pod.
+                </p>
+            </div>
+            <div class="setup-error" id="inClusterError"></div>
+            <button class="btn btn-primary" onclick="useInCluster()">Use In-Cluster Config →</button>
+        </div>
+
+        <!-- Connected/Saved Kubeconfigs list for easy management of configs -->
+        <div id="setupKubeconfigList" style="margin-top: 1.5rem; display: none; border-top: 1px solid var(--border); padding-top: 1rem;">
+            <p style="color: var(--text-muted); font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.5rem;">
+                Connected/Saved Kubeconfigs
+            </p>
+            <div id="setupConfigsContainer" style="display: flex; flex-direction: column; gap: 0.35rem; max-height: 120px; overflow-y: auto;"></div>
+        </div>
+    </div>
+</div>
+
+<!-- ── APP LAYOUT ─────────────────────────────────────────────── -->
+<div class="obsidian-app">
+    <!-- Left Sidebar -->
+    <aside class="left-sidebar" id="leftSidebar">
+        <!-- Sidebar Header -->
+        <div class="sidebar-header">
+            <div class="logo">
+                <img class="brand-mark" src="/assets/mark.svg" alt="">
+                <span class="logo-text">RouDash</span>
+            </div>
+        </div>
+
+        <div class="sidebar-scroll">
+            <!-- Context switcher -->
+            <div class="sidebar-section">
+                <div class="section-title">Active Cluster</div>
+                <select class="context-select" id="contextSwitcher" onchange="switchContext(this.value)">
+                </select>
+            </div>
+
+            <!-- Navigation Links -->
+            <div class="sidebar-section">
+                <div class="section-title">Views</div>
+                <div class="nav-links">
+                    <button class="nav-link active" id="btnDashboard" onclick="setView('dashboard')">
+                        <span><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#dashboard"></use></svg></span> Dashboard
+                    </button>
+                    <button class="nav-link" id="btnGraph" onclick="setView('graph')">
+                        <span><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#graph"></use></svg></span> Graph View
+                    </button>
+                </div>
+            </div>
+
+            <!-- Folders filters -->
+            <div class="sidebar-section folder-section">
+                <div class="folder-header" onclick="toggleFolder('folderNamespaces')">
+                    <span class="folder-arrow">▼</span>
+                    <span class="folder-title">Namespaces</span>
+                    <span class="folder-count" id="countNamespaces">0</span>
+                </div>
+                <ul class="folder-list" id="folderNamespaces"></ul>
+            </div>
+
+            <div class="sidebar-section folder-section">
+                <div class="folder-header" onclick="toggleFolder('folderPlugins')">
+                    <span class="folder-arrow">▼</span>
+                    <span class="folder-title">Kong Plugins</span>
+                    <span class="folder-count" id="countPlugins">0</span>
+                </div>
+                <ul class="folder-list" id="folderPlugins"></ul>
+            </div>
+
+            <div class="sidebar-section folder-section">
+                <div class="folder-header" onclick="toggleFolder('folderHosts')">
+                    <span class="folder-arrow">▼</span>
+                    <span class="folder-title">Active Hosts</span>
+                    <span class="folder-count" id="countHosts">0</span>
+                </div>
+                <ul class="folder-list" id="folderHosts"></ul>
+            </div>
+        </div>
+
+        <!-- Sidebar Footer -->
+        <div class="sidebar-footer">
+            <div class="conn-status" onclick="showClusterDetail()" style="cursor:pointer;" title="Click for details">
+                <div class="conn-dot disconnected" id="connDot"></div>
+                <span class="conn-text" id="connText">Not connected</span>
+            </div>
+            <button class="add-cluster-btn" onclick="showSetup()"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#plus"></use></svg> Connect</button>
+        </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <button class="nav-scrim" aria-label="Close navigation" onclick="closeMobileNav()"></button>
+    <main class="main-content">
+        <!-- Top Toolbar -->
+        <header class="toolbar">
+            <div class="toolbar-left">
+                <button class="toolbar-btn sidebar-toggle" onclick="toggleLeftSidebar()" title="Toggle Sidebar" style="font-size:0.8rem; line-height:28px; text-align:center;">
+                    <svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#sidebar"></use></svg>
+                </button>
+                <div class="breadcrumbs">
+                    <span id="breadcrumbCluster">No Cluster</span>
+                    <span class="separator">/</span>
+                    <span id="breadcrumbView">Dashboard</span>
+                </div>
+            </div>
+
+            <div class="toolbar-right">
+                <select id="namespaceSelect" onchange="filterData()" style="display:none"></select>
+                
+                <!-- Search bar -->
+                <div class="search-box">
+                    <input type="text" aria-label="Filter resources" id="searchInput" placeholder="Search hosts, services, paths…" oninput="filterData()">
+                    <button aria-label="Clear search" class="clear-search" id="clearSearch" onclick="clearSearchInput()" style="display:none">×</button>
+                </div>
+
+                <!-- Refresh and controls -->
+                <div class="refresh-controls">
+                    <label class="auto-refresh-toggle" id="autoRefreshToggle">
+                        <input type="checkbox" id="autoRefreshCheck" onchange="toggleAutoRefresh()">
+                        <span>Auto 30s</span>
+                    </label>
+                    <button class="toolbar-btn refresh-btn" id="refreshBtn" onclick="fetchIngresses()" title="Refresh Data">
+                        <svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#refresh"></use></svg> Refresh
+                    </button>
+                </div>
+                <div class="last-refresh" id="lastRefresh" role="status"></div>
+            </div>
+        </header>
+
+        <div id="syncError" role="alert" hidden></div>
+        <!-- View Containers -->
+        <div class="view-container">
+            <!-- Dashboard View -->
+            <div class="workspace-view active" id="viewDashboard">
+                <div class="section-intro"><span class="eyebrow">01 / WORKSPACE</span><h1>Ingress overview</h1><p>Explore the routes, hosts and services in your cluster.</p></div>
+                <!-- Stats Grid -->
+                <div class="stats-grid">
+                    <div class="stat-card" onclick="showStatDetail('ingresses')">
+                        <div class="stat-icon blue"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#ingress"></use></svg></div>
+                        <div class="stat-info">
+                            <h3>Total Ingresses</h3>
+                            <div class="value" id="statTotal">—</div>
+                        </div>
+                    </div>
+                    <div class="stat-card" onclick="showStatDetail('hosts')">
+                        <div class="stat-icon green"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#host"></use></svg></div>
+                        <div class="stat-info">
+                            <h3>Active Hosts</h3>
+                            <div class="value" id="statHosts">—</div>
+                        </div>
+                    </div>
+                    <div class="stat-card" onclick="showStatDetail('namespaces')">
+                        <div class="stat-icon purple"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#namespace"></use></svg></div>
+                        <div class="stat-info">
+                            <h3>Namespaces</h3>
+                            <div class="value" id="statNamespaces">—</div>
+                        </div>
+                    </div>
+                    <div class="stat-card" onclick="showStatDetail('plugins')">
+                        <div class="stat-icon orange"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#plugin"></use></svg></div>
+                        <div class="stat-info">
+                            <h3>Kong Plugins</h3>
+                            <div class="value" id="statPlugins">—</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Loading screen -->
+                <div id="loading" class="loading-container" style="display:none">
+                    <div class="spinner"></div>
+                    <p style="color:var(--text-secondary)">Querying Kubernetes cluster…</p>
+                </div>
+
+                <!-- Ingress Container -->
+                <div id="ingressContainer" class="ingress-grid"></div>
+            </div>
+
+            <!-- Graph View -->
+            <div class="workspace-view" id="viewGraph">
+                <div class="graph-toolbar">
+                    <div><span class="eyebrow">02 / TOPOLOGY</span><h1>Graph explorer</h1></div>
+                    <div class="graph-actions">
+                        <button class="toolbar-btn" onclick="topology.fit()">Fit view</button>
+                        <button class="toolbar-btn" id="graphLabels" aria-pressed="true" onclick="topology.toggleLabels()">Labels</button>
+                        <button class="toolbar-btn" id="graphDensity" onclick="topology.toggleDetail()">Overview only</button>
+                    </div>
+                </div>
+                <div class="graph-stage"><div id="graphCanvas" aria-label="Interactive resource topology"></div><p id="graphEmpty" hidden>No matching ingresses to map.</p></div>
+                <div class="graph-footer"><div class="graph-legend" id="graphLegend"></div><span id="graphCount"></span></div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Right Sidebar Detail View -->
+    <aside class="right-panel collapsed" id="rightPanel">
+        <div class="panel-header">
+            <div style="display:flex; align-items:center; gap:0.5rem;">
+                <button class="toolbar-btn" id="panelBackBtn" onclick="navigatePanelBack()" title="Go Back" style="display:none; font-size:0.75rem; width:24px; height:24px; line-height:22px;">
+                    ←
+                </button>
+                <h2 id="panelTitle"><span class="icon"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#ingress"></use></svg></span> Details</h2>
+            </div>
+            <button aria-label="Close details" class="close-btn" onclick="closeRightPanel()">×</button>
+        </div>
+        <div class="panel-content" id="panelContent">
+            <p class="empty-state">Select an item (Ingress card, stats card, or graph node) to view details.</p>
+        </div>
+    </aside>
+</div>
+
+<!-- Toast notifications -->
+<div id="toast" class="toast"></div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────
+let allIngresses = [];
+let autoRefreshTimer = null;
+let persistEnabled = false;
+let selectedFile = null;
+let selectedContext = null;
+let loadedKubeconfigs = [];
+let currentView = 'dashboard';
+
+// Navigation History Stack for Right Details Panel
+let panelHistory = [];
+let currentPanelState = null;
+
+// Dynamic route mapping injected on page serve
+let ROUTES_MAP = {{ROUTES_MAP}};
+
+// Route resolvers based on obfuscated map
+function getRoute(action) {
+    return ROUTES_MAP[action] || `/${action}`;
+}
+
+function getDeleteKubeconfigRoute(name) {
+    const base = ROUTES_MAP['kubeconfig'] || '/kubeconfig';
+    return `${base}/${encodeURIComponent(name)}`;
+}
+
+// API configuration proxy getters
+const API = {
+    get ingresses()  { return getRoute('ingresses'); },
+    get status()     { return getRoute('status'); },
+    get contexts()   { return getRoute('contexts'); },
+    get context()    { return getRoute('context'); },
+    get kubeconfig() { return getRoute('kubeconfig'); },
+    get incluster()  { return getRoute('incluster'); },
+    deleteKubeconfig: (name) => getDeleteKubeconfigRoute(name),
+};
+
+// ── Init ──────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', async () => {
+    setupDropzone();
+    topology.legend();
+    await checkStatus();
+});
+
+async function checkStatus() {
+    try {
+        const res = await apiFetch(API.status);
+        const data = await res.json();
+        persistEnabled = data.persistMode || false;
+        loadedKubeconfigs = data.kubeconfigs || [];
+
+        renderSetupKubeconfigList();
+
+        if (persistEnabled) {
+            document.getElementById('persistBanner').classList.add('visible');
+            document.getElementById('saveToggle').classList.add('visible');
+        }
+
+        if (!res.ok || data.status !== 'success') throw new Error(data.message || 'Status unavailable');
+        if (activeContext !== (data.activeContext || '')) resetContext(data.activeContext || '');
+        if (data.state === 'connected') {
+            hideSetup();
+            updateConnBadge('connected', data.activeContext, data.host);
+            populateContextSwitcher(data.contexts, data.activeContext);
+            await fetchIngresses();
+        } else {
+            updateConnBadge('disconnected', '', '');
+            showSetup();
+        }
+    } catch (err) {
+        resetContext('');
+        updateConnBadge('disconnected', '', '');
+        showSetup();
+        showToast(err.message, true);
+    }
+}
+
+// ── Setup overlay ─────────────────────────────────────────────────
+function showSetup() {
+    document.getElementById('setupDismiss').hidden = !activeContext;
+    document.getElementById('setupOverlay').classList.remove('hidden');
+}
+function hideSetup() {
+    document.getElementById('setupOverlay').classList.add('hidden');
+    resetSetup();
+}
+function showTab(name) {
+    document.querySelectorAll('.setup-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('tab' + name.charAt(0).toUpperCase() + name.slice(1)).classList.add('active');
+    document.getElementById('panel' + name.charAt(0).toUpperCase() + name.slice(1)).classList.add('active');
+}
+function resetSetup() {
+    document.getElementById('uploadStep').style.display = 'block';
+    document.getElementById('contextStep').classList.remove('visible');
+    document.getElementById('fileName').style.display = 'none';
+    document.getElementById('kubeconfigName').value = '';
+    document.getElementById('uploadBtn').disabled = true;
+    document.getElementById('uploadBtn').textContent = 'Connect cluster →';
+    document.getElementById('activateBtn').textContent = 'Open workspace →';
+    document.getElementById('activateBtn').disabled = true;
+    document.getElementById('fileInput').value = '';
+    document.getElementById('uploadError').classList.remove('visible');
+    selectedFile = null;
+    selectedContext = null;
+}
+
+// ── Dropzone ──────────────────────────────────────────────────────
+function setupDropzone() {
+    const dz = document.getElementById('dropzone');
+    dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragging'); });
+    dz.addEventListener('dragleave', () => dz.classList.remove('dragging'));
+    dz.addEventListener('drop', e => {
+        e.preventDefault(); dz.classList.remove('dragging');
+        const file = e.dataTransfer.files[0];
+        if (file) selectFile(file);
+    });
+}
+function handleFileSelect(input) {
+    if (input.files[0]) selectFile(input.files[0]);
+}
+function selectFile(file) {
+    selectedFile = file;
+    const fn = document.getElementById('fileName');
+    fn.textContent = '✓ ' + file.name + ' (' + (file.size / 1024).toFixed(1) + ' KB)';
+    fn.style.display = 'block';
+    document.getElementById('uploadBtn').disabled = false;
+    document.getElementById('uploadError').classList.remove('visible');
+}
+
+// ── Upload kubeconfig ─────────────────────────────────────────────
+async function uploadKubeconfig() {
+    if (!selectedFile) return;
+    const btn = document.getElementById('uploadBtn');
+    btn.disabled = true; btn.textContent = 'Connecting…';
+
+    const form = new FormData();
+    form.append('file', selectedFile);
+    const name = document.getElementById('kubeconfigName').value.trim()
+        || selectedFile.name.replace(/\.[^.]+$/, '');
+    form.append('name', name);
+    const save = document.getElementById('saveToDisk').checked ? 'true' : 'false';
+    form.append('save', save);
+
+    try {
+        const res = await apiFetch(API.kubeconfig, { method: 'POST', body: form });
+        const data = await res.json();
+        if (data.status !== 'success') throw new Error(data.message);
+
+        if (data.contexts && data.contexts.length > 1) {
+            showContextStep(data.contexts);
+        } else if (data.contexts && data.contexts.length === 1) {
+            await doSwitchContext(data.contexts[0]);
+        } else {
+            throw new Error('No contexts found in the uploaded kubeconfig.');
+        }
+    } catch (err) {
+        showSetupError('uploadError', err.message);
+        btn.disabled = false; btn.textContent = 'Connect Cluster →';
+    }
+}
+
+function showContextStep(contexts) {
+    document.getElementById('uploadStep').style.display = 'none';
+    const step = document.getElementById('contextStep');
+    step.classList.add('visible');
+
+    const list = document.getElementById('contextList');
+    list.innerHTML = '';
+    contexts.forEach(ctx => {
+        const li = document.createElement('li');
+        li.className = 'context-item';
+        const parts = ctx.split(':');
+        li.textContent = (parts.length === 2 ? `${parts[1]} (${parts[0]})` : ctx);
+        li.onclick = () => {
+            document.querySelectorAll('.context-item').forEach(i => i.classList.remove('selected'));
+            li.classList.add('selected');
+            selectedContext = ctx;
+            document.getElementById('activateBtn').disabled = false;
+        };
+        list.appendChild(li);
+    });
+}
+
+async function activateContext() {
+    if (!selectedContext) return;
+    const btn = document.getElementById('activateBtn');
+    btn.disabled = true; btn.textContent = 'Activating…';
+    try {
+        await doSwitchContext(selectedContext);
+    } catch(err) {
+        showSetupError('contextError', err.message);
+        btn.disabled = false; btn.textContent = 'Open Workspace →';
+    }
+}
+
+async function doSwitchContext(contextName) {
+    await activateConnection(API.context, contextName);
+}
+
+// ── In-cluster ────────────────────────────────────────────────────
+async function useInCluster() {
+    try {
+        await activateConnection(API.incluster);
+    } catch(err) {
+        showSetupError('inClusterError', err.message);
+    }
+}
+
+function showSetupError(id, msg) {
+    const el = document.getElementById(id);
+    el.textContent = msg;
+    el.classList.add('visible');
+}
+
+// ── Connection badge ──────────────────────────────────────────────
+function updateConnBadge(state, context, host) {
+    const dot = document.getElementById('connDot');
+    const text = document.getElementById('connText');
+    
+    dot.className = 'conn-dot ' + state;
+    
+    let displayName = context || (state === 'connected' ? 'Connected' : 'Disconnected');
+    const parts = displayName.split(':');
+    if (parts.length === 2) {
+        displayName = parts[1];
+    }
+    
+    text.textContent = displayName;
+    text.title = (context ? `Context: ${context}\n` : '') + (host || '');
+    
+    document.getElementById('breadcrumbCluster').textContent = displayName;
+}
+
+// ── Context switcher ──────────────────────────────────────────────
+function populateContextSwitcher(contexts, active) {
+    const sel = document.getElementById('contextSwitcher');
+    sel.innerHTML = '';
+    
+    function formatContextDisplayName(scoped) {
+        if (!scoped) return '';
+        const parts = scoped.split(':');
+        if (parts.length === 2) {
+            return `${parts[1]} (${parts[0]})`;
+        }
+        return scoped;
+    }
+    
+    if (contexts && contexts.length > 0) {
+        contexts.forEach(ctx => {
+            const opt = document.createElement('option');
+            opt.value = ctx;
+            opt.textContent = formatContextDisplayName(ctx);
+            if (ctx === active) opt.selected = true;
+            sel.appendChild(opt);
+        });
+    } else if (active) {
+        const opt = document.createElement('option');
+        opt.value = active;
+        opt.textContent = formatContextDisplayName(active);
+        opt.selected = true;
+        sel.appendChild(opt);
+    }
+    
+    const divider = document.createElement('option');
+    divider.disabled = true;
+    divider.textContent = '────────────────────';
+    sel.appendChild(divider);
+
+    const addOpt = document.createElement('option');
+    addOpt.value = '__add_new__';
+    addOpt.textContent = '+ Connect new cluster…';
+    sel.appendChild(addOpt);
+}
+
+async function switchContext(ctx) {
+    if (ctx === '__add_new__') {
+        showSetup();
+        const active = document.getElementById('connText').title.split('\n')[0].replace('Context: ', '');
+        document.getElementById('contextSwitcher').value = active;
+        return;
+    }
+    
+    try { await doSwitchContext(ctx); }
+    catch (err) { showToast('Failed to switch context: ' + err.message, true); }
+}
+
+// ── Ingress fetch & render ────────────────────────────────────────
+function initDashboard() {
+    const namespaces = [...new Set(allIngresses.map(i => i.namespace))].sort();
+    const select = document.getElementById('namespaceSelect');
+    const current = select.value || 'all';
+    select.innerHTML = '<option value="all">All Namespaces</option>';
+    namespaces.forEach(ns => {
+        const opt = document.createElement('option');
+        opt.value = ns; opt.textContent = ns;
+        if (ns === current) opt.selected = true;
+        select.appendChild(opt);
+    });
+
+    populateSidebarFilters();
+    filterData();
+
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('ingressContainer').style.display = 'flex';
+}
+
+function populateSidebarFilters() {
+    const namespaces = [...new Set(allIngresses.map(i => i.namespace))].sort();
+    document.getElementById('countNamespaces').textContent = namespaces.length;
+    
+    const nsFolder = document.getElementById('folderNamespaces');
+    const activeNs = document.getElementById('namespaceSelect').value || 'all';
+    
+    let nsHtml = `<li id="sidebar-ns-all" class="${activeNs === 'all' ? 'active' : ''}" onclick="filterByNamespace('all')"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#namespace"></use></svg> All Namespaces</li>`;
+    namespaces.forEach(ns => {
+        nsHtml += `<li id="sidebar-ns-${ns}" class="${activeNs === ns ? 'active' : ''}" onclick="filterByNamespace('${ns}')"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#namespace"></use></svg> ${ns}</li>`;
+    });
+    nsFolder.innerHTML = nsHtml;
+    
+    const pluginsMap = {};
+    allIngresses.forEach(ing => {
+        ing.plugins.forEach(p => {
+            pluginsMap[p] = (pluginsMap[p] || 0) + 1;
+        });
+    });
+    const plugins = Object.keys(pluginsMap).sort();
+    document.getElementById('countPlugins').textContent = plugins.length;
+    
+    const pFolder = document.getElementById('folderPlugins');
+    let pHtml = '';
+    plugins.forEach(p => {
+        pHtml += `<li id="sidebar-plugin-${p}" onclick="filterByPlugin('${p}')"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#plugin"></use></svg> ${p} <span class="badge-count">${pluginsMap[p]}</span></li>`;
+    });
+    pFolder.innerHTML = pHtml || '<li class="empty-item" style="font-size:0.75rem; color:var(--text-muted); padding:0.4rem 0.6rem;">No plugins found</li>';
+    
+    const hostsMap = {};
+    allIngresses.forEach(ing => {
+        ing.paths.forEach(p => {
+            if (p.host && p.host !== '*') {
+                hostsMap[p.host] = (hostsMap[p.host] || 0) + 1;
+            }
+        });
+    });
+    const hosts = Object.keys(hostsMap).sort();
+    document.getElementById('countHosts').textContent = hosts.length;
+    
+    const hFolder = document.getElementById('folderHosts');
+    let hHtml = '';
+    hosts.forEach(h => {
+        hHtml += `<li id="sidebar-host-${h}" onclick="filterByHost('${h}')"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#host"></use></svg> ${h} <span class="badge-count">${hostsMap[h]}</span></li>`;
+    });
+    hFolder.innerHTML = hHtml || '<li class="empty-item" style="font-size:0.75rem; color:var(--text-muted); padding:0.4rem 0.6rem;">No active hosts</li>';
+}
+
+function updateStats(data) {
+    document.getElementById('statTotal').textContent = data.length;
+    const hosts = new Set(), namespaces = new Set();
+    let plugins = 0;
+    data.forEach(ing => {
+        namespaces.add(ing.namespace);
+        plugins += ing.plugins.length;
+        ing.paths.forEach(p => { if (p.host && p.host !== '*') hosts.add(p.host); });
+    });
+    document.getElementById('statHosts').textContent = hosts.size;
+    document.getElementById('statNamespaces').textContent = namespaces.size;
+    document.getElementById('statPlugins').textContent = plugins;
+}
+
+function renderIngresses(list) {
+    const container = document.getElementById('ingressContainer');
+    container.innerHTML = '';
+    
+    if (list.length === 0) {
+        container.innerHTML = `
+            <div style="text-align:center; padding:3rem; color:var(--text-muted); font-size: 0.85rem;">
+                <div style="font-size:2rem; margin-bottom:0.5rem"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#search"></use></svg></div>
+                <p>No Ingresses found matching current workspace filters.</p>
+            </div>`;
+        return;
+    }
+    
+    list.forEach(ing => {
+        const card = document.createElement('div');
+        card.className = 'ingress-card';
+        card.id = `card:${ing.namespace}/${ing.name}`;
+        card.onclick = () => showIngressDetail(ing);
+ 
+        const pluginsHtml = ing.plugins.length > 0
+            ? `<div class="plugins-container">${ing.plugins.map(p => `<span class="plugin-badge">${p}</span>`).join('')}</div>`
+            : '';
+
+        const rowsHtml = ing.paths.map(p => {
+            const hostVal = (p.host === '*' || !p.host) ? (ing.loadBalancer || 'localhost') : p.host;
+            const url = 'http://' + hostVal + p.path;
+            
+            return `<tr>
+                <td>
+                    <div style="display:flex; align-items:center; gap:0.3rem;">
+                        <span class="route-link" onclick="event.stopPropagation(); copyToClipboard('${url}')">${p.host} <span style="font-size:0.65rem;" title="Copy to clipboard"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#copy"></use></svg></span></span>
+                        <a href="${url}" target="_blank" onclick="event.stopPropagation();" class="route-open-link" title="Open in new tab" style="color:var(--accent-light); text-decoration:none; font-size:0.8rem; font-weight:bold;">↗</a>
+                    </div>
+                </td>
+                <td><span class="path-badge">${p.path}</span></td>
+                <td><span style="color:var(--text-muted); font-size:0.75rem">${p.pathType}</span></td>
+                <td><div class="backend-info"><span class="backend-service">${p.serviceName}</span><span class="backend-port">${p.servicePort}</span></div></td>
+            </tr>`;
+        }).join('');
+
+        const routesCount = ing.paths.length;
+        const routesLabel = routesCount === 1 ? '1 Route' : `${routesCount} Routes`;
+        
+        let toggleHtml = '';
+        let tableStyle = '';
+        if (routesCount > 1) {
+            toggleHtml = `
+                <div class="routes-toggle-bar" onclick="event.stopPropagation(); toggleRoutesTable(this)">
+                    <span class="toggle-arrow">▶</span>
+                    <span class="toggle-label">${routesLabel}</span>
+                </div>
+            `;
+            tableStyle = 'display:none;';
+        }
+
+        card.innerHTML = `
+            <div class="card-header">
+                <div class="card-title-group">
+                    <span class="ingress-name">${ing.name}</span>
+                    <span class="badge badge-namespace">${ing.namespace}</span>
+                    <span class="badge badge-class">${ing.ingressClass}</span>
+                </div>
+                ${pluginsHtml}
+            </div>
+            ${toggleHtml}
+            <table class="routes-table" style="${tableStyle}">
+                <thead><tr><th>Host</th><th>Path</th><th>Type</th><th>Backend</th></tr></thead>
+                <tbody>${rowsHtml}</tbody>
+            </table>`;
+        container.appendChild(card);
+    });
+}
+
+function toggleRoutesTable(el) {
+    const table = el.nextElementSibling;
+    const arrow = el.querySelector('.toggle-arrow');
+    if (table.style.display === 'none') {
+        table.style.display = 'table';
+        arrow.textContent = '▼';
+    } else {
+        table.style.display = 'none';
+        arrow.textContent = '▶';
+    }
+}
+
+function filterData() {
+    const search = document.getElementById('searchInput').value.toLowerCase();
+    const ns = document.getElementById('namespaceSelect').value || 'all';
+    
+    document.getElementById('clearSearch').style.display = search ? 'block' : 'none';
+
+    const filtered = allIngresses.filter(ing => {
+        const matchNs = ns === 'all' || ing.namespace === ns;
+        const matchSearch = !search ||
+            ing.name.toLowerCase().includes(search) ||
+            ing.namespace.toLowerCase().includes(search) ||
+            ing.ingressClass.toLowerCase().includes(search) ||
+            ing.plugins.some(p => p.toLowerCase().includes(search)) ||
+            ing.paths.some(p =>
+                p.host.toLowerCase().includes(search) ||
+                p.path.toLowerCase().includes(search) ||
+                p.serviceName.toLowerCase().includes(search));
+        return matchNs && matchSearch;
+    });
+
+    updateStats(filtered);
+    renderIngresses(filtered);
+
+    if (currentView === 'graph') {
+        topology.update(filtered);
+    }
+}
+
+// ── Sidebar quick filter handlers ─────────────────────────────────
+function filterByNamespace(ns) {
+    document.getElementById('namespaceSelect').value = ns;
+    
+    document.querySelectorAll('#folderNamespaces li').forEach(li => li.classList.remove('active'));
+    const li = document.getElementById('sidebar-ns-' + ns);
+    if (li) li.classList.add('active');
+    
+    filterData();
+    closeMobileNav();
+}
+
+function filterByHost(host) {
+    document.getElementById('searchInput').value = host;
+    filterData();
+    closeMobileNav();
+}
+
+function filterByPlugin(plugin) {
+    document.getElementById('searchInput').value = plugin;
+    filterData();
+    closeMobileNav();
+}
+
+function clearSearchInput() {
+    document.getElementById('searchInput').value = '';
+    filterData();
+}
+
+// ── Switch Workspace Views ─────────────────────────────────────────
+function setView(viewName) {
+    closeMobileNav();
+    currentView = viewName;
+    document.querySelectorAll('.workspace-view').forEach(v => v.classList.remove('active'));
+    document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+    
+    document.getElementById('breadcrumbView').textContent = viewName.charAt(0).toUpperCase() + viewName.slice(1);
+    
+    if (viewName === 'dashboard') {
+        document.getElementById('viewDashboard').classList.add('active');
+        document.getElementById('btnDashboard').classList.add('active');
+        topology.pause();
+    } else if (viewName === 'graph') {
+        document.getElementById('viewGraph').classList.add('active');
+        document.getElementById('btnGraph').classList.add('active');
+        
+        filterData();
+        topology.resume();
+    }
+}
+
+function closeMobileNav() { document.getElementById('leftSidebar').classList.remove('mobile-open'); }
+function toggleLeftSidebar() {
+    if (matchMedia('(max-width: 800px)').matches) {
+        document.getElementById('leftSidebar').classList.toggle('mobile-open');
+        return;
+    }
+    document.getElementById('leftSidebar').classList.toggle('collapsed');
+}
+
+function toggleFolder(id) {
+    const list = document.getElementById(id);
+    const header = list.previousElementSibling;
+    const arrow = header.querySelector('.folder-arrow');
+    
+    if (list.style.display === 'none') {
+        list.style.display = 'flex';
+        arrow.style.transform = 'rotate(0deg)';
+    } else {
+        list.style.display = 'none';
+        arrow.style.transform = 'rotate(-90deg)';
+    }
+}
+
+// ── Right Sidebar History Navigation & Layout ────────────────────────
+function closeRightPanel() {
+    topology.clearFocus();
+    document.getElementById('rightPanel').classList.add('collapsed');
+    panelHistory = [];
+    currentPanelState = null;
+}
+
+function navigatePanelBack() {
+    if (panelHistory.length === 0) return;
+    const prevState = panelHistory.pop();
+    renderDetailView(prevState.type, prevState.arg, true);
+}
+
+function updateBackButton() {
+    const backBtn = document.getElementById('panelBackBtn');
+    if (panelHistory.length > 0) {
+        backBtn.style.display = 'inline-block';
+    } else {
+        backBtn.style.display = 'none';
+    }
+}
+
+function renderDetailView(type, arg, isBackNavigation = false) {
+    if (!isBackNavigation && currentPanelState) {
+        panelHistory.push(currentPanelState);
+    }
+    
+    currentPanelState = { type, arg };
+    
+    if (type === 'ingress') {
+        doShowIngressDetail(arg);
+    } else if (type === 'namespace') {
+        doShowNamespaceDetail(arg);
+    } else if (type === 'host') {
+        doShowHostDetail(arg);
+    } else if (type === 'plugin') {
+        doShowPluginDetail(arg);
+    } else if (type === 'service') {
+        doShowServiceDetail(arg);
+    } else if (type === 'cluster') {
+        doShowClusterDetail();
+    } else if (type === 'stat') {
+        doShowStatDetail(arg);
+    }
+    
+    updateBackButton();
+}
+
+// Detail Entry-Point Wrappers
+function showIngressDetail(ing) { renderDetailView('ingress', ing); }
+function showNamespaceDetail(ns) { renderDetailView('namespace', ns); }
+function showHostDetail(host) { renderDetailView('host', host); }
+function showPluginDetail(plugin) { renderDetailView('plugin', plugin); }
+function showServiceDetail(svc) { renderDetailView('service', svc); }
+function showClusterDetail() { renderDetailView('cluster', null); }
+function showStatDetail(type) { renderDetailView('stat', type); }
+
+// Render Details: Ingress Spec
+function doShowIngressDetail(ing) {
+    const title = document.getElementById('panelTitle');
+    const content = document.getElementById('panelContent');
+    document.getElementById('rightPanel').classList.remove('collapsed');
+    
+    title.innerHTML = `<span class="icon"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#ingress"></use></svg></span> Ingress Spec`;
+    
+    const pluginsHtml = ing.plugins.length > 0
+        ? ing.plugins.map(p => `<span class="detail-plugin-badge" onclick="showPluginDetail('${p}')"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#plugin"></use></svg> ${p}</span>`).join(' ')
+        : '<span style="font-size:0.75rem; color:var(--text-muted)">No Kong plugins configured</span>';
+        
+    const pathsHtml = ing.paths.map(p => {
+        const hostVal = (p.host === '*' || !p.host) ? (ing.loadBalancer || 'localhost') : p.host;
+        const url = 'http://' + hostVal + p.path;
+        return `
+            <div class="detail-path-card">
+                <div class="path-host" style="display:flex; align-items:center; gap:0.35rem;">
+                    Host: <strong>${p.host}</strong>
+                    <a href="${url}" target="_blank" class="route-open-link" style="color:var(--accent-light); text-decoration:none; font-weight:bold;">↗</a>
+                </div>
+                <div style="color:var(--text-secondary)">Path: <span class="path-badge">${p.path}</span> (${p.pathType})</div>
+                <div>Backend: <span class="backend-service" onclick="showServiceDetail('${ing.namespace}/${p.serviceName}')" style="cursor:pointer; text-decoration:underline; color:var(--accent-light);">${p.serviceName}</span> <span class="backend-port">${p.servicePort}</span></div>
+            </div>
+        `;
+    }).join('');
+
+    content.innerHTML = `
+        <div class="detail-section" style="flex-grow:0;">
+            <label>Name</label>
+            <div class="detail-value text-highlight">${ing.name}</div>
+        </div>
+        <div class="detail-section" style="flex-grow:0;">
+            <label>Namespace</label>
+            <div class="detail-value"><span class="clickable-filter" onclick="filterByNamespace('${ing.namespace}')"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#namespace"></use></svg> ${ing.namespace}</span></div>
+        </div>
+        <div class="detail-section" style="flex-grow:0;">
+            <label>Ingress Class</label>
+            <div class="detail-value">${ing.ingressClass || 'N/A'}</div>
+        </div>
+        <div class="detail-section" style="flex-grow:0;">
+            <label>Kong Plugins</label>
+            <div>${pluginsHtml}</div>
+        </div>
+        <div class="detail-section" style="flex-grow:0;">
+            <label>Routes & Targets</label>
+            <div>${pathsHtml}</div>
+        </div>
+        <div class="detail-section" style="flex-grow:0;">
+            <label>Creation Timestamp</label>
+            <div class="detail-value" style="font-family:monospace; font-size:0.75rem; color:var(--text-muted);">${ing.creationTime}</div>
+        </div>
+        <div class="detail-section" style="flex-grow:0;">
+            <label>Ingress spec preview · JSON</label>
+            <pre class="yaml-code"><code>${escapeHtml(formatIngressSpec(ing))}</code></pre>
+        </div>
+    `;
+}
+
+function showIngressDetailById(id) {
+    const parts = id.split('/');
+    const ns = parts[0];
+    const name = parts[1];
+    const ing = allIngresses.find(i => i.namespace === ns && i.name === name);
+    if (ing) {
+        showIngressDetail(ing);
+        
+        if (currentView === 'graph') {
+            topology.focus('ingress:' + id);
+        } else {
+            const cardEl = document.getElementById(`card:${ns}/${name}`);
+            if (cardEl) {
+                cardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                cardEl.style.borderColor = 'var(--accent)';
+                cardEl.style.boxShadow = '0 0 15px var(--accent-glow)';
+                setTimeout(() => {
+                    cardEl.style.borderColor = '';
+                    cardEl.style.boxShadow = '';
+                }, 2000);
+            }
+        }
+    }
+}
+
+// Render Namespace details
+function doShowNamespaceDetail(ns) {
+    const title = document.getElementById('panelTitle');
+    const content = document.getElementById('panelContent');
+    document.getElementById('rightPanel').classList.remove('collapsed');
+    
+    title.innerHTML = `<span class="icon"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#namespace"></use></svg></span> Namespace: ${ns}`;
+    
+    const matching = allIngresses.filter(i => i.namespace === ns);
+    const ingList = matching.map(ing => `
+        <div class="detail-item-row" onclick="showIngressDetailById('${ing.namespace}/${ing.name}')">
+            <span class="item-name"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#ingress"></use></svg> ${ing.name}</span>
+            <span class="item-meta">${ing.paths.length} target(s)</span>
+        </div>
+    `).join('');
+    
+    content.innerHTML = `
+        <div class="detail-section" style="flex-grow:0;">
+            <label>Namespace Overview</label>
+            <div class="detail-value">Total Ingress Resources: <strong>${matching.length}</strong></div>
+        </div>
+        <div class="detail-section">
+            <label>Ingresses in this Namespace</label>
+            <div class="detail-item-list">${ingList || '<p style="padding:0.6rem; color:var(--text-muted); font-size:0.75rem;">None</p>'}</div>
+        </div>
+    `;
+}
+
+// Render Host details
+function doShowHostDetail(host) {
+    const title = document.getElementById('panelTitle');
+    const content = document.getElementById('panelContent');
+    document.getElementById('rightPanel').classList.remove('collapsed');
+    
+    title.innerHTML = `<span class="icon"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#host"></use></svg></span> Host: ${host}`;
+    
+    const matching = allIngresses.filter(ing => ing.paths.some(p => p.host === host));
+    const ingList = matching.map(ing => {
+        const routeCount = ing.paths.filter(p => p.host === host).length;
+        return `
+            <div class="detail-item-row" onclick="showIngressDetailById('${ing.namespace}/${ing.name}')">
+                <span class="item-name"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#ingress"></use></svg> ${ing.namespace}/${ing.name}</span>
+                <span class="item-meta">${routeCount} target path(s)</span>
+            </div>
+        `;
+    }).join('');
+    
+    content.innerHTML = `
+        <div class="detail-section" style="flex-grow:0;">
+            <label>Host Overview</label>
+            <div class="detail-value">Mapped Ingresses: <strong>${matching.length}</strong></div>
+        </div>
+        <div class="detail-section">
+            <label>Associated Ingress Rules</label>
+            <div class="detail-item-list">${ingList || '<p style="padding:0.6rem; color:var(--text-muted); font-size:0.75rem;">None</p>'}</div>
+        </div>
+    `;
+}
+
+// Render Plugin details
+function doShowPluginDetail(plugin) {
+    const title = document.getElementById('panelTitle');
+    const content = document.getElementById('panelContent');
+    document.getElementById('rightPanel').classList.remove('collapsed');
+    
+    title.innerHTML = `<span class="icon"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#plugin"></use></svg></span> Plugin: ${plugin}`;
+    
+    const matching = allIngresses.filter(ing => ing.plugins.includes(plugin));
+    const ingList = matching.map(ing => `
+        <div class="detail-item-row" onclick="showIngressDetailById('${ing.namespace}/${ing.name}')">
+            <span class="item-name"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#ingress"></use></svg> ${ing.namespace}/${ing.name}</span>
+        </div>
+    `).join('');
+    
+    content.innerHTML = `
+        <div class="detail-section" style="flex-grow:0;">
+            <label>Plugin Info</label>
+            <div class="detail-value">Plugin Type: <strong>${plugin}</strong></div>
+            <div class="detail-value" style="margin-top:0.3rem;">Total Associations: <strong>${matching.length}</strong></div>
+        </div>
+        <div class="detail-section">
+            <label>Applied Ingress Resources</label>
+            <div class="detail-item-list">${ingList}</div>
+        </div>
+    `;
+}
+
+// Render Service details
+function doShowServiceDetail(svcName) {
+    const title = document.getElementById('panelTitle');
+    const content = document.getElementById('panelContent');
+    document.getElementById('rightPanel').classList.remove('collapsed');
+    
+    const parts = svcName.split('/');
+    const namespace = parts[0];
+    const name = parts[1];
+    
+    title.innerHTML = `<span class="icon"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#service"></use></svg></span> Service: ${name}`;
+    
+    const matching = allIngresses.filter(ing => 
+        ing.namespace === namespace && 
+        ing.paths.some(p => p.serviceName === name)
+    );
+    
+    const ingList = matching.map(ing => {
+        const ports = [...new Set(ing.paths.filter(p => p.serviceName === name).map(p => p.servicePort))].join(', ');
+        return `
+            <div class="detail-item-row" onclick="showIngressDetailById('${ing.namespace}/${ing.name}')">
+                <span class="item-name"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#ingress"></use></svg> ${ing.namespace}/${ing.name}</span>
+                <span class="item-meta">Port: ${ports}</span>
+            </div>
+        `;
+    }).join('');
+    
+    content.innerHTML = `
+        <div class="detail-section" style="flex-grow:0;">
+            <label>Service Overview</label>
+            <div class="detail-value">Namespace: <strong>${namespace}</strong></div>
+            <div class="detail-value" style="margin-top:0.3rem;">Routing Ingresses: <strong>${matching.length}</strong></div>
+        </div>
+        <div class="detail-section">
+            <label>Associated Ingress Routing Rules</label>
+            <div class="detail-item-list">${ingList || '<p style="padding:0.6rem; color:var(--text-muted); font-size:0.75rem;">None</p>'}</div>
+        </div>
+    `;
+}
+
+// Render Cluster Config details
+function doShowClusterDetail() {
+    const title = document.getElementById('panelTitle');
+    const content = document.getElementById('panelContent');
+    document.getElementById('rightPanel').classList.remove('collapsed');
+    
+    title.innerHTML = `<span class="icon"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#graph"></use></svg></span> Cluster Details`;
+    
+    const activeCtx = document.getElementById('connText').title.split('\n')[0].replace('Context: ', '');
+    const host = document.getElementById('connText').title.split('\n')[1] || '';
+    
+    const configsList = loadedKubeconfigs.map(name => `
+        <div class="kubeconfig-item-row">
+            <span><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#file"></use></svg> ${name}</span>
+            <button class="delete-config-btn" onclick="deleteConfig('${name}')" title="Delete Kubeconfig"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#trash"></use></svg></button>
+        </div>
+    `).join('');
+    
+    content.innerHTML = `
+        <div class="detail-section" style="flex-grow:0;">
+<div class="detail-value text-highlight">${activeCtx}</div>
+        </div>
+        <div class="detail-section" style="flex-grow:0;">
+            <label>Kubernetes API Endpoint</label>
+            <div class="detail-value" style="font-family:monospace; font-size:0.75rem; word-break:break-all;">${host || 'N/A'}</div>
+        </div>
+        <div class="detail-section" style="flex-grow:0;">
+            <label>Resource Counters</label>
+            <div class="detail-value">Namespaces: <strong>${new Set(allIngresses.map(i => i.namespace)).size}</strong></div>
+            <div class="detail-value" style="margin-top:0.3rem;">Ingresses: <strong>${allIngresses.length}</strong></div>
+        </div>
+        <div class="detail-section">
+            <label>Loaded Kubeconfig Files</label>
+            <div class="detail-item-list" style="border:none; background:transparent; max-height:180px; min-height:0; overflow-y:auto; padding:2px;">${configsList || '<p style="font-size:0.75rem; color:var(--text-muted)">None</p>'}</div>
+        </div>
+    `;
+}
+
+// Render group stats details list
+function doShowStatDetail(type) {
+    const title = document.getElementById('panelTitle');
+    const content = document.getElementById('panelContent');
+    document.getElementById('rightPanel').classList.remove('collapsed');
+    
+    const search = document.getElementById('searchInput').value.toLowerCase();
+    const ns = document.getElementById('namespaceSelect').value || 'all';
+    
+    const filtered = allIngresses.filter(ing => {
+        const matchNs = ns === 'all' || ing.namespace === ns;
+        const matchSearch = !search ||
+            ing.name.toLowerCase().includes(search) ||
+            ing.namespace.toLowerCase().includes(search) ||
+            ing.ingressClass.toLowerCase().includes(search) ||
+            ing.plugins.some(p => p.toLowerCase().includes(search)) ||
+            ing.paths.some(p =>
+                p.host.toLowerCase().includes(search) ||
+                p.path.toLowerCase().includes(search) ||
+                p.serviceName.toLowerCase().includes(search));
+        return matchNs && matchSearch;
+    });
+
+    if (type === 'ingresses') {
+        title.innerHTML = `<span class="icon"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#ingress"></use></svg></span> Ingresses list`;
+        const list = filtered.map(ing => `
+            <div class="detail-item-row" onclick="showIngressDetailById('${ing.namespace}/${ing.name}')">
+                <div>
+                    <div class="item-name">${ing.name}</div>
+                    <div class="item-sub">ns: ${ing.namespace} | class: ${ing.ingressClass}</div>
+                </div>
+                <span class="badge-count">${ing.paths.length} target(s)</span>
+            </div>
+        `).join('');
+        content.innerHTML = `
+            <div class="detail-section">
+                <label>Current Active Ingresses (${filtered.length})</label>
+                <div class="detail-item-list">${list || '<p style="padding:0.6rem; color:var(--text-muted); font-size:0.75rem;">None</p>'}</div>
+            </div>
+        `;
+    } else if (type === 'hosts') {
+        title.innerHTML = `<span class="icon"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#host"></use></svg></span> Active Hosts`;
+        const hostsMap = {};
+        filtered.forEach(ing => {
+            ing.paths.forEach(p => {
+                if (p.host && p.host !== '*') {
+                    if (!hostsMap[p.host]) hostsMap[p.host] = [];
+                    hostsMap[p.host].push(`${ing.namespace}/${ing.name}`);
+                }
+            });
+        });
+        const list = Object.keys(hostsMap).sort().map(h => `
+            <div class="detail-item-row" onclick="showHostDetail('${h}')">
+                <span class="item-name">${h}</span>
+                <span class="item-meta">${hostsMap[h].length} Ingress(es)</span>
+            </div>
+        `).join('');
+        content.innerHTML = `
+            <div class="detail-section">
+                <label>Active Domain Hosts (${Object.keys(hostsMap).length})</label>
+                <div class="detail-item-list">${list || '<p style="padding:0.6rem; color:var(--text-muted); font-size:0.75rem;">None</p>'}</div>
+            </div>
+        `;
+    } else if (type === 'namespaces') {
+        title.innerHTML = `<span class="icon"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#namespace"></use></svg></span> Namespaces`;
+        const nsMap = {};
+        filtered.forEach(ing => {
+            nsMap[ing.namespace] = (nsMap[ing.namespace] || 0) + 1;
+        });
+        const list = Object.keys(nsMap).sort().map(n => `
+            <div class="detail-item-row" onclick="showNamespaceDetail('${n}')">
+                <span class="item-name">${n}</span>
+                <span class="item-meta">${nsMap[n]} Ingress(es)</span>
+            </div>
+        `).join('');
+        content.innerHTML = `
+            <div class="detail-section">
+                <label>Active Namespaces (${Object.keys(nsMap).length})</label>
+                <div class="detail-item-list">${list || '<p style="padding:0.6rem; color:var(--text-muted); font-size:0.75rem;">None</p>'}</div>
+            </div>
+        `;
+    } else if (type === 'plugins') {
+        title.innerHTML = `<span class="icon"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#plugin"></use></svg></span> Kong Plugins`;
+        const pluginsMap = {};
+        filtered.forEach(ing => {
+            ing.plugins.forEach(p => {
+                if (!pluginsMap[p]) pluginsMap[p] = [];
+                pluginsMap[p].push(`${ing.namespace}/${ing.name}`);
+            });
+        });
+        const list = Object.keys(pluginsMap).sort().map(p => `
+            <div class="detail-item-row" onclick="showPluginDetail('${p}')">
+                <span class="item-name">${p}</span>
+                <span class="item-meta">${pluginsMap[p].length} Ingress(es)</span>
+            </div>
+        `).join('');
+        content.innerHTML = `
+            <div class="detail-section">
+                <label>Applied Plugins (${Object.keys(pluginsMap).length})</label>
+                <div class="detail-item-list">${list || '<p style="padding:0.6rem; color:var(--text-muted); font-size:0.75rem;">None</p>'}</div>
+            </div>
+        `;
+    }
+}
+
+// ── Spec generator format ──────────────────────────────────────────
+function formatIngressSpec(ing) {
+    const spec = {
+        apiVersion: "networking.k8s.io/v1",
+        kind: "Ingress",
+        metadata: {
+            name: ing.name,
+            namespace: ing.namespace,
+            annotations: {
+                "kubernetes.io/ingress.class": ing.ingressClass,
+                "konghq.com/plugins": ing.plugins.join(",")
+            }
+        },
+        spec: {
+            ingressClassName: ing.ingressClass,
+            rules: ing.paths.map(p => ({
+                host: p.host,
+                http: {
+                    paths: [{
+                        path: p.path,
+                        pathType: p.pathType,
+                        backend: {
+                            service: {
+                                name: p.serviceName,
+                                port: {
+                                    number: parseInt(p.servicePort) || undefined,
+                                    name: isNaN(parseInt(p.servicePort)) ? p.servicePort : undefined
+                                }
+                            }
+                        }
+                    }]
+                }
+            }))
+        }
+    };
+    return JSON.stringify(spec, null, 2);
+}
+
+function escapeHtml(string) {
+    return String(string).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// ── Clipboard Copy ────────────────────────────────────────────────
+function copyToClipboard(text) {
+    navigator.clipboard.writeText(text).then(() => showToast('Inbound URL copied to clipboard!'));
+}
+
+// ── Toast ─────────────────────────────────────────────────────────
+function showToast(msg, isError = false) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast show' + (isError ? ' error' : '');
+    setTimeout(() => { t.className = 'toast'; }, 2500);
+}
+
+// ── Kubeconfig Management ─────────────────────────────────────────
+async function deleteConfig(name) {
+    if (!confirm(`Are you sure you want to remove the kubeconfig file "${name}"?`)) return;
+    try {
+        const res = await apiFetch(API.deleteKubeconfig(name), { method: 'DELETE' });
+        const data = await res.json();
+        if (data.status !== 'success') throw new Error(data.message);
+        showToast(`Kubeconfig "${name}" deleted successfully`);
+        await checkStatus();
+    } catch(err) {
+        showToast('Failed to delete: ' + err.message, true);
+    }
+}
+
+function renderSetupKubeconfigList() {
+    const listSection = document.getElementById('setupKubeconfigList');
+    const container = document.getElementById('setupConfigsContainer');
+    if (!listSection || !container) return;
+    
+    if (loadedKubeconfigs && loadedKubeconfigs.length > 0) {
+        listSection.style.display = 'block';
+        container.innerHTML = loadedKubeconfigs.map(name => `
+            <div class="kubeconfig-item-row" style="margin-bottom:0; background:var(--bg-sidebar); border-color:var(--border);">
+                <span><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#file"></use></svg> ${name}</span>
+                <button class="delete-config-btn" onclick="deleteConfig('${name}')" title="Delete Kubeconfig"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#trash"></use></svg></button>
+            </div>
+        `).join('');
+    } else {
+        listSection.style.display = 'none';
+        container.innerHTML = '';
+    }
+}
+</script>
+</body>
+</html>
