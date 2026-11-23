@@ -1,0 +1,5 @@
+demo/
+.env
+roudash
+data/
+opencode.json*
