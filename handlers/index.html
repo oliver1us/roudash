@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,9 +7,12 @@
     <meta name="description" content="RouDash — Real-time Kubernetes Ingress Dashboard — Obsidian-style workspace with graph views, detailed stats, and interactive topology.">
     <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
     <link rel="icon" href="/assets/mark.svg" type="image/svg+xml">
+    <script src="/assets/theme.js"></script>
     <link rel="stylesheet" href="/assets/base.css">
     <link rel="stylesheet" href="/assets/workspace.css">
     <script defer src="/assets/vendor/vis-network.min.js"></script>
+    <script defer src="/assets/vendor/js-yaml.min.js"></script>
+    <script defer src="/assets/manifest.js"></script>
     <script defer src="/assets/topology.js"></script>
     <script defer src="/assets/sync.js"></script>
 </head>
@@ -29,6 +32,9 @@
                 <h2>RouDash</h2>
                 <p class="eyebrow">Kubernetes route explorer</p>
             </div>
+            <button class="toolbar-btn theme-toggle" type="button" aria-label="Switch to light theme" title="Switch to light theme">
+                <svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#sun"></use></svg>
+            </button>
             <button class="toolbar-btn setup-dismiss" id="setupDismiss" type="button" aria-label="Return to workspace" onclick="hideSetup()" hidden>×</button>
         </div>
 
@@ -198,6 +204,9 @@
                     <span class="separator">/</span>
                     <span id="breadcrumbView">Dashboard</span>
                 </div>
+                <button class="toolbar-btn theme-toggle" type="button" aria-label="Switch to light theme" title="Switch to light theme">
+                    <svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#sun"></use></svg>
+                </button>
             </div>
 
             <div class="toolbar-right">
@@ -306,6 +315,21 @@
 
 <!-- Toast notifications -->
 <div id="toast" class="toast"></div>
+
+<template id="manifestTemplate">
+    <section class="detail-section manifest-section">
+        <div class="manifest-header">
+            <strong>Manifest</strong>
+            <div class="manifest-formats" role="group" aria-label="Manifest format">
+                <button type="button" aria-pressed="true">YAML</button>
+                <button type="button" aria-pressed="false">JSON</button>
+            </div>
+        </div>
+        <select aria-label="Resource manifest"></select>
+        <small class="manifest-note" role="status"></small>
+        <pre class="yaml-code"><code></code></pre>
+    </section>
+</template>
 
 <script>
 // ── State ─────────────────────────────────────────────────────────
@@ -800,18 +824,22 @@ function filterByNamespace(ns) {
     
     filterData();
     closeMobileNav();
+    if (ns === 'all') showStatDetail('namespaces');
+    else showNamespaceDetail(ns);
 }
 
 function filterByHost(host) {
     document.getElementById('searchInput').value = host;
     filterData();
     closeMobileNav();
+    showHostDetail(host);
 }
 
 function filterByPlugin(plugin) {
     document.getElementById('searchInput').value = plugin;
     filterData();
     closeMobileNav();
+    showPluginDetail(plugin);
 }
 
 function clearSearchInput() {
@@ -887,29 +915,34 @@ function updateBackButton() {
     }
 }
 
-function renderDetailView(type, arg, isBackNavigation = false) {
+function renderDetailView(type, arg, isBackNavigation = false, refreshState = null) {
     if (!isBackNavigation && currentPanelState) {
         panelHistory.push(currentPanelState);
     }
     
-    currentPanelState = { type, arg };
+    currentPanelState = { type, arg, format: refreshState?.format || 'YAML', resource: refreshState?.resource };
+    let related;
     
     if (type === 'ingress') {
         doShowIngressDetail(arg);
+        related = [arg];
     } else if (type === 'namespace') {
-        doShowNamespaceDetail(arg);
+        related = doShowNamespaceDetail(arg);
     } else if (type === 'host') {
-        doShowHostDetail(arg);
+        related = doShowHostDetail(arg);
     } else if (type === 'plugin') {
-        doShowPluginDetail(arg);
+        related = doShowPluginDetail(arg);
     } else if (type === 'service') {
-        doShowServiceDetail(arg);
+        related = doShowServiceDetail(arg);
     } else if (type === 'cluster') {
         doShowClusterDetail();
+        related = allIngresses;
     } else if (type === 'stat') {
-        doShowStatDetail(arg);
+        related = doShowStatDetail(arg);
     }
     
+    renderManifest(currentPanelState, related);
+    if (!refreshState) document.getElementById('panelContent').scrollTop = 0;
     updateBackButton();
 }
 
@@ -974,10 +1007,6 @@ function doShowIngressDetail(ing) {
             <label>Creation Timestamp</label>
             <div class="detail-value" style="font-family:monospace; font-size:0.75rem; color:var(--text-muted);">${ing.creationTime}</div>
         </div>
-        <div class="detail-section" style="flex-grow:0;">
-            <label>Ingress spec preview · JSON</label>
-            <pre class="yaml-code"><code>${escapeHtml(formatIngressSpec(ing))}</code></pre>
-        </div>
     `;
 }
 
@@ -1032,6 +1061,7 @@ function doShowNamespaceDetail(ns) {
             <div class="detail-item-list">${ingList || '<p style="padding:0.6rem; color:var(--text-muted); font-size:0.75rem;">None</p>'}</div>
         </div>
     `;
+    return matching;
 }
 
 // Render Host details
@@ -1063,6 +1093,7 @@ function doShowHostDetail(host) {
             <div class="detail-item-list">${ingList || '<p style="padding:0.6rem; color:var(--text-muted); font-size:0.75rem;">None</p>'}</div>
         </div>
     `;
+    return matching;
 }
 
 // Render Plugin details
@@ -1091,6 +1122,7 @@ function doShowPluginDetail(plugin) {
             <div class="detail-item-list">${ingList}</div>
         </div>
     `;
+    return matching;
 }
 
 // Render Service details
@@ -1131,6 +1163,7 @@ function doShowServiceDetail(svcName) {
             <div class="detail-item-list">${ingList || '<p style="padding:0.6rem; color:var(--text-muted); font-size:0.75rem;">None</p>'}</div>
         </div>
     `;
+    return matching;
 }
 
 // Render Cluster Config details
@@ -1274,48 +1307,9 @@ function doShowStatDetail(type) {
             </div>
         `;
     }
-}
-
-// ── Spec generator format ──────────────────────────────────────────
-function formatIngressSpec(ing) {
-    const spec = {
-        apiVersion: "networking.k8s.io/v1",
-        kind: "Ingress",
-        metadata: {
-            name: ing.name,
-            namespace: ing.namespace,
-            annotations: {
-                "kubernetes.io/ingress.class": ing.ingressClass,
-                "konghq.com/plugins": ing.plugins.join(",")
-            }
-        },
-        spec: {
-            ingressClassName: ing.ingressClass,
-            rules: ing.paths.map(p => ({
-                host: p.host,
-                http: {
-                    paths: [{
-                        path: p.path,
-                        pathType: p.pathType,
-                        backend: {
-                            service: {
-                                name: p.serviceName,
-                                port: {
-                                    number: parseInt(p.servicePort) || undefined,
-                                    name: isNaN(parseInt(p.servicePort)) ? p.servicePort : undefined
-                                }
-                            }
-                        }
-                    }]
-                }
-            }))
-        }
-    };
-    return JSON.stringify(spec, null, 2);
-}
-
-function escapeHtml(string) {
-    return String(string).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    if (type === 'hosts') return filtered.filter(i => i.paths.some(p => p.host && p.host !== '*'));
+    if (type === 'plugins') return filtered.filter(i => i.plugins.length);
+    return filtered;
 }
 
 // ── Clipboard Copy ────────────────────────────────────────────────
