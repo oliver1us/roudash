@@ -47,6 +47,15 @@ button,select {font-family:inherit}
 .ingress-name,.panel-header h2 {color:var(--text-primary)}
 .routes-table td {font-size:.76rem}
 .right-panel {max-width:37vw}
+.manifest-section {flex:0 0 auto; min-width:0}
+.manifest-header {display:flex; align-items:center; justify-content:space-between; font-size:.82rem}
+.manifest-formats {display:inline-flex; border:1px solid var(--border); border-radius:5px; overflow:hidden}
+.manifest-formats button {background:var(--bg-card); color:var(--text-muted); font:inherit; font-size:.68rem; padding:.25rem .5rem; border:0; cursor:pointer}
+.manifest-formats button[aria-pressed="true"] {background:var(--bg-active); color:var(--accent-light); font-weight:bold}
+.manifest-formats button:focus-visible {outline-offset:-2px}
+.manifest-section select {width:100%; font-size:.75rem}
+.manifest-note {color:var(--text-secondary); overflow-wrap:anywhere}
+.manifest-note:empty {display:none}
 .nav-scrim {display:none}
 
 #setupOverlay {
