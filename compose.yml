@@ -1,0 +1,22 @@
+services:
+  roudash:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${ROUDASH_BIND_ADDR:-0.0.0.0}:${ROUDASH_PORT:-8080}:8080"
+    environment:
+      PORT: "8080"
+      LISTEN_ADDR: "0.0.0.0"
+      API_OBFUSCATION: "${ROUDASH_API_OBFUSCATION:-true}"
+      PERSIST_DIR: "${ROUDASH_PERSIST_DIR:-}"
+    volumes:
+      - data:/data
+    healthcheck:
+      test: ["CMD", "/app/roudash", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  data:
