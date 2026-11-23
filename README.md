@@ -75,6 +75,9 @@ arrancar. Los archivos contienen credenciales: limita el acceso al volumen.
 
 ## Explorar el panel
 
+- **Tema:** pulsa el sol para pasar al tema claro o la luna para volver al oscuro.
+  El botón está en la pantalla de conexión y en la barra superior. El navegador
+  recuerda tu elección; la primera visita usa el tema oscuro.
 - **Dashboard:** busca por host, servicio, ruta o nombre de Ingress. Los filtros
   de la barra lateral se aplican también a los contadores.
 - **Graph View:** selecciona un nodo para resaltar sus vecinos y abrir sus

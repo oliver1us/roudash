@@ -1,22 +1,43 @@
 // The graph is derived from the same filtered Ingress list as the dashboard.
 // Resource identity, rather than position in an API response, drives updates.
 const topology = (() => {
-    const palette = {
-        cluster: '#f2c184', namespace: '#ad9ae2', ingress: '#8bbde1',
-        service: '#96c7ab', host: '#e9ae89', plugin: '#da97b0'
-    };
     const labels = {cluster:'Cluster', namespace:'Namespace', ingress:'Ingress', service:'Service', host:'Host', plugin:'Kong plugin'};
+    let palette, dimColor, selectionBorder;
     let network, dots, lines, observer, selected, fitPending = true, detailed, showLabels = true;
     let model = new Map(), connections = new Map();
     const $ = id => document.getElementById(id);
+
+    function themeOptions() {
+        const style = getComputedStyle(document.documentElement);
+        const css = name => style.getPropertyValue(name).trim();
+        palette = Object.fromEntries(Object.keys(labels).map(type => [type, css('--color-' + type)]));
+        dimColor = css('--graph-dim');
+        selectionBorder = css('--graph-selection');
+        return {
+            nodes: {shape:'dot', borderWidth:0, borderWidthSelected:2, font:{face:'monospace', size:12, color:css('--graph-label'), strokeWidth:3, strokeColor:css('--bg-main')}},
+            edges: {smooth:false, width:1, color:{inherit:false, color:css('--graph-edge'), highlight:css('--graph-edge-active'), hover:css('--graph-edge-active')}}
+        };
+    }
+
+    function nodeColor(type, lit = true) {
+        const color = lit ? palette[type] : dimColor;
+        const highlight = {background:palette[type], border:selectionBorder};
+        return {background:color, border:color, highlight, hover:highlight};
+    }
+
+    document.addEventListener('themechange', () => {
+        if (!network) return;
+        network.setOptions(themeOptions());
+        paint();
+        if (currentView !== 'graph') network.stopSimulation();
+    });
 
     function init() {
         dots = new vis.DataSet();
         lines = new vis.DataSet();
         network = new vis.Network($('graphCanvas'), {nodes:dots, edges:lines}, {
             autoResize: false, layout: {improvedLayout: false, randomSeed: 17},
-            nodes: {shape:'dot', borderWidth:0, borderWidthSelected:2, font:{face:'monospace', size:12, color:'#e6dfd3', strokeWidth:3, strokeColor:'#211e1a'}},
-            edges: {smooth:false, width:1, color:{inherit:false, color:'#686055', highlight:'#ffd397'}},
+            ...themeOptions(),
             physics: {solver:'barnesHut', barnesHut:{springLength:90, gravitationalConstant:-1450, damping:0.26}, stabilization:{iterations:160, fit:false}},
             interaction: {hover:true, hideEdgesOnDrag:false},
         });
@@ -52,10 +73,10 @@ const topology = (() => {
         for (const [id, n] of model) {
             const lit = !neighborhood || neighborhood.has(id);
             const label = lit && (showLabels || !!neighborhood) ? n.label : '';
-            const color = lit ? palette[n.type] : '#514b42';
+            const color = lit ? palette[n.type] : dimColor;
             const prev = dots.get(id);
             if (prev.label !== label || prev.color.background !== color)
-                changes.push({id, label, color:{background:color, border:color, highlight:{background:palette[n.type],border:'#fff3df'}}});
+                changes.push({id, label, color:nodeColor(n.type, lit)});
         }
         if (changes.length) dots.update(changes);
     }
@@ -104,8 +125,7 @@ const topology = (() => {
         const newDots = [];
         for (const [id,n] of next) {
             if (model.has(id)) continue;
-            const color = palette[n.type];
-            newDots.push({id, label:showLabels ? n.label : '', color:{background:color,border:color,highlight:{background:color,border:'#fff3df'}},
+            newDots.push({id, label:showLabels ? n.label : '', color:nodeColor(n.type),
                 size:({cluster:15,namespace:11,ingress:8})[n.type] || 5});
         }
         if (newDots.length) dots.add(newDots);
@@ -124,12 +144,12 @@ const topology = (() => {
         model.clear(); connections.clear(); fitPending = true;
     }
     function legend() {
-        $('graphLegend').replaceChildren(...Object.entries(palette).map(([type,color]) => {
+        $('graphLegend').replaceChildren(...Object.entries(labels).map(([type,label]) => {
             const item = document.createElement('span');
             item.className = 'legend-item';
             const dot = document.createElement('i');
-            dot.className = 'legend-dot'; dot.style.background = color;
-            item.append(dot, labels[type]); return item;
+            dot.className = 'legend-dot ' + type;
+            item.append(dot, label); return item;
         }));
     }
     return {update, fit, clear, legend,

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,6 +7,7 @@
     <meta name="description" content="RouDash — Real-time Kubernetes Ingress Dashboard — Obsidian-style workspace with graph views, detailed stats, and interactive topology.">
     <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
     <link rel="icon" href="/assets/mark.svg" type="image/svg+xml">
+    <script src="/assets/theme.js"></script>
     <link rel="stylesheet" href="/assets/base.css">
     <link rel="stylesheet" href="/assets/workspace.css">
     <script defer src="/assets/vendor/vis-network.min.js"></script>
@@ -31,6 +32,9 @@
                 <h2>RouDash</h2>
                 <p class="eyebrow">Kubernetes route explorer</p>
             </div>
+            <button class="toolbar-btn theme-toggle" type="button" aria-label="Switch to light theme" title="Switch to light theme">
+                <svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#sun"></use></svg>
+            </button>
             <button class="toolbar-btn setup-dismiss" id="setupDismiss" type="button" aria-label="Return to workspace" onclick="hideSetup()" hidden>×</button>
         </div>
 
@@ -200,6 +204,9 @@
                     <span class="separator">/</span>
                     <span id="breadcrumbView">Dashboard</span>
                 </div>
+                <button class="toolbar-btn theme-toggle" type="button" aria-label="Switch to light theme" title="Switch to light theme">
+                    <svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#sun"></use></svg>
+                </button>
             </div>
 
             <div class="toolbar-right">
