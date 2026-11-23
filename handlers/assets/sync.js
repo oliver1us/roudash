@@ -8,7 +8,8 @@ let routeRenewal = null;
 // specific response, never a network error or a Kubernetes authorization error.
 async function apiFetch(url, options = {}) {
     const mapping = ROUTES_MAP;
-    const entry = Object.entries(mapping).find(([,path]) => url === path || url.startsWith(path + '/'));
+    const pathname = url.split('?')[0];
+    const entry = Object.entries(mapping).find(([,path]) => pathname === path || pathname.startsWith(path + '/'));
     let res = await fetch(url, options);
     if (entry && res.status === 401 && res.headers.get('X-Routes-Expired') === '1') {
         if (!routeRenewal) {
@@ -75,7 +76,7 @@ function fetchIngresses() {
                     ? allIngresses.find(i => i.namespace === arg.namespace && i.name === arg.name)
                     : arg;
                 if (type === 'ingress' && !fresh) closeRightPanel();
-                else renderDetailView(type, fresh, true);
+                else renderDetailView(type, fresh, true, currentPanelState);
             }
             lastSuccess = new Date().toLocaleTimeString();
             setRefreshMessage('Updated ' + lastSuccess);
