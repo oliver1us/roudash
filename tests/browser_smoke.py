@@ -11,7 +11,14 @@ from playwright.sync_api import expect, sync_playwright
 class Kube(BaseHTTPRequestHandler):
     def do_GET(self):
         srv = self.server
-        if self.path != "/apis/networking.k8s.io/v1/ingresses":
+        path = urlsplit(self.path).path
+        if path == "/api/v1/namespaces/apps":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"apiVersion":"v1","kind":"Namespace","metadata":{"name":"apps"}}')
+            return
+        if path != "/apis/networking.k8s.io/v1/ingresses":
             self.send_error(404)
             return
         srv.requests += 1
@@ -22,7 +29,8 @@ class Kube(BaseHTTPRequestHandler):
             "name": "backend", "port": {"number": 8080}}}}
         item = {"metadata": {"name": name, "namespace": "apps",
                              "annotations": {"konghq.com/plugins": "cors"}},
-                "spec": {"rules": [{"host": "web.example.test",
+                "spec": {"tls": [{"hosts": ["web.example.test"], "secretName": "web-tls"}],
+                         "rules": [{"host": "web.example.test",
                                     "http": {"paths": [route, dict(route, path="/api")]}}]}}
         body = {"kind": "IngressList", "apiVersion": "networking.k8s.io/v1", "items": [item]}
         self.send_response(503 if srv.failed else 200)
@@ -91,6 +99,9 @@ def run(url, servers):
         page.locator("#graphDensity").click()
         page.locator("#sidebar-ns-apps").click()
         expect(page.locator("#viewGraph")).to_be_visible()
+        manifest = page.locator(".manifest-section code")
+        expect(manifest).to_contain_text("kind: Namespace")
+        page.locator(".close-btn").click()
         page.locator("#searchInput").fill("missing")
         expect(page.locator("#graphEmpty")).to_be_visible()
         page.locator("#searchInput").fill("web.example")
@@ -103,6 +114,17 @@ def run(url, servers):
         point = page.evaluate("""testNetwork.canvasToDOM(testNetwork.getPosition('ingress:apps/west'))""")
         page.locator("#graphCanvas canvas").click(position=point)
         expect(page.locator("#panelTitle")).to_contain_text("Ingress Spec")
+        expect(manifest).to_contain_text("secretName: web-tls")
+        yaml_object = manifest.evaluate("(code) => jsyaml.load(code.textContent)")
+        assert len(yaml_object["spec"]["rules"][0]["http"]["paths"]) == 2
+        page.get_by_role("button", name="JSON", exact=True).click()
+        assert json.loads(manifest.inner_text()) == yaml_object
+        page.locator(".detail-plugin-badge").click()
+        expect(page.locator(".manifest-note")).to_contain_text("Showing the related Ingress")
+        expect(manifest).to_contain_text("kind: Ingress")
+        expect(page.get_by_role("button", name="YAML", exact=True)).to_have_attribute("aria-pressed", "true")
+        page.locator("#panelBackBtn").click()
+        expect(manifest).to_contain_text("secretName: web-tls")
         page.locator(".close-btn").click()
         page.evaluate("""() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done)))""")
         page.evaluate("""testNetwork.moveTo({scale:1.47, position:{x:18,y:35}})""")
@@ -150,6 +172,7 @@ def run(url, servers):
         expect(page.locator(".ingress-name")).to_have_text(b.name)
         page.locator(".ingress-card").click()
         expect(page.locator("#panelTitle")).to_contain_text("Ingress Spec")
+        expect(manifest).to_contain_text(f"name: {b.name}")
         page.locator(".close-btn").click()
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
         assert not errors, errors
