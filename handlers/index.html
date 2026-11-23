@@ -214,8 +214,6 @@
             </div>
 
             <div class="toolbar-right">
-                <select id="namespaceSelect" onchange="filterData()" style="display:none"></select>
-                
                 <!-- Search bar -->
                 <div class="search-box">
                     <input type="text" aria-label="Filter resources" id="searchInput" placeholder="Search hosts, services, paths…" oninput="filterData()">
@@ -236,6 +234,12 @@
             </div>
         </header>
 
+        <section class="filter-bar" aria-label="Active filters">
+            <strong>Active filters</strong>
+            <div id="filterChips" class="filter-chips"></div>
+            <span id="noFilters">None</span>
+            <button type="button" id="clearFilters" onclick="clearWorkspaceFilters()" hidden>Clear all</button>
+        </section>
         <div id="syncError" role="alert" hidden></div>
         <!-- View Containers -->
         <div class="view-container">
@@ -335,6 +339,14 @@
     </section>
 </template>
 
+<template id="filterOption">
+    <li>
+        <label><input type="checkbox"><span class="option-name"></span></label>
+        <span class="badge-count"></span>
+        <button class="inspect-filter" type="button"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#file"></use></svg></button>
+    </li>
+</template>
+<script src="/assets/filters.js"></script>
 <script>
 // ── State ─────────────────────────────────────────────────────────
 let allIngresses = [];
@@ -625,70 +637,11 @@ async function switchContext(ctx) {
 
 // ── Ingress fetch & render ────────────────────────────────────────
 function initDashboard() {
-    const namespaces = [...new Set(allIngresses.map(i => i.namespace))].sort();
-    const select = document.getElementById('namespaceSelect');
-    const current = select.value || 'all';
-    select.innerHTML = '<option value="all">All Namespaces</option>';
-    namespaces.forEach(ns => {
-        const opt = document.createElement('option');
-        opt.value = ns; opt.textContent = ns;
-        if (ns === current) opt.selected = true;
-        select.appendChild(opt);
-    });
-
     populateSidebarFilters();
     filterData();
 
     document.getElementById('loading').style.display = 'none';
     document.getElementById('ingressContainer').style.display = 'flex';
-}
-
-function populateSidebarFilters() {
-    const namespaces = [...new Set(allIngresses.map(i => i.namespace))].sort();
-    document.getElementById('countNamespaces').textContent = namespaces.length;
-    
-    const nsFolder = document.getElementById('folderNamespaces');
-    const activeNs = document.getElementById('namespaceSelect').value || 'all';
-    
-    let nsHtml = `<li id="sidebar-ns-all" class="${activeNs === 'all' ? 'active' : ''}" onclick="filterByNamespace('all')"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#namespace"></use></svg> All Namespaces</li>`;
-    namespaces.forEach(ns => {
-        nsHtml += `<li id="sidebar-ns-${ns}" class="${activeNs === ns ? 'active' : ''}" onclick="filterByNamespace('${ns}')"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#namespace"></use></svg> ${ns}</li>`;
-    });
-    nsFolder.innerHTML = nsHtml;
-    
-    const pluginsMap = {};
-    allIngresses.forEach(ing => {
-        ing.plugins.forEach(p => {
-            pluginsMap[p] = (pluginsMap[p] || 0) + 1;
-        });
-    });
-    const plugins = Object.keys(pluginsMap).sort();
-    document.getElementById('countPlugins').textContent = plugins.length;
-    
-    const pFolder = document.getElementById('folderPlugins');
-    let pHtml = '';
-    plugins.forEach(p => {
-        pHtml += `<li id="sidebar-plugin-${p}" onclick="filterByPlugin('${p}')"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#plugin"></use></svg> ${p} <span class="badge-count">${pluginsMap[p]}</span></li>`;
-    });
-    pFolder.innerHTML = pHtml || '<li class="empty-item" style="font-size:0.75rem; color:var(--text-muted); padding:0.4rem 0.6rem;">No plugins found</li>';
-    
-    const hostsMap = {};
-    allIngresses.forEach(ing => {
-        ing.paths.forEach(p => {
-            if (p.host && p.host !== '*') {
-                hostsMap[p.host] = (hostsMap[p.host] || 0) + 1;
-            }
-        });
-    });
-    const hosts = Object.keys(hostsMap).sort();
-    document.getElementById('countHosts').textContent = hosts.length;
-    
-    const hFolder = document.getElementById('folderHosts');
-    let hHtml = '';
-    hosts.forEach(h => {
-        hHtml += `<li id="sidebar-host-${h}" onclick="filterByHost('${h}')"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#host"></use></svg> ${h} <span class="badge-count">${hostsMap[h]}</span></li>`;
-    });
-    hFolder.innerHTML = hHtml || '<li class="empty-item" style="font-size:0.75rem; color:var(--text-muted); padding:0.4rem 0.6rem;">No active hosts</li>';
 }
 
 function updateStats(data) {
@@ -791,27 +744,13 @@ function toggleRoutesTable(el) {
 }
 
 function filterData() {
-    const search = document.getElementById('searchInput').value.toLowerCase();
-    const ns = document.getElementById('namespaceSelect').value || 'all';
-    
-    document.getElementById('clearSearch').style.display = search ? 'block' : 'none';
-
-    const filtered = allIngresses.filter(ing => {
-        const matchNs = ns === 'all' || ing.namespace === ns;
-        const matchSearch = !search ||
-            ing.name.toLowerCase().includes(search) ||
-            ing.namespace.toLowerCase().includes(search) ||
-            ing.ingressClass.toLowerCase().includes(search) ||
-            ing.plugins.some(p => p.toLowerCase().includes(search)) ||
-            ing.paths.some(p =>
-                p.host.toLowerCase().includes(search) ||
-                p.path.toLowerCase().includes(search) ||
-                p.serviceName.toLowerCase().includes(search));
-        return matchNs && matchSearch;
-    });
-
+    renderFilterBar();
+    const filtered = filteredIngresses();
     updateStats(filtered);
     renderIngresses(filtered);
+    if (currentPanelState?.type === 'stat') {
+        renderDetailView('stat', currentPanelState.arg, true, currentPanelState);
+    }
 
     if (currentView === 'graph') {
         topology.update(filtered);
@@ -820,30 +759,10 @@ function filterData() {
 
 // ── Sidebar quick filter handlers ─────────────────────────────────
 function filterByNamespace(ns) {
-    document.getElementById('namespaceSelect').value = ns;
-    
-    document.querySelectorAll('#folderNamespaces li').forEach(li => li.classList.remove('active'));
-    const li = document.getElementById('sidebar-ns-' + ns);
-    if (li) li.classList.add('active');
-    
+    selectedFilters.Namespace.add(ns);
+    syncFilterCheckboxes();
     filterData();
-    closeMobileNav();
-    if (ns === 'all') showStatDetail('namespaces');
-    else showNamespaceDetail(ns);
-}
-
-function filterByHost(host) {
-    document.getElementById('searchInput').value = host;
-    filterData();
-    closeMobileNav();
-    showHostDetail(host);
-}
-
-function filterByPlugin(plugin) {
-    document.getElementById('searchInput').value = plugin;
-    filterData();
-    closeMobileNav();
-    showPluginDetail(plugin);
+    showNamespaceDetail(ns);
 }
 
 function clearSearchInput() {
@@ -1214,22 +1133,7 @@ function doShowStatDetail(type) {
     const content = document.getElementById('panelContent');
     document.getElementById('rightPanel').classList.remove('collapsed');
     
-    const search = document.getElementById('searchInput').value.toLowerCase();
-    const ns = document.getElementById('namespaceSelect').value || 'all';
-    
-    const filtered = allIngresses.filter(ing => {
-        const matchNs = ns === 'all' || ing.namespace === ns;
-        const matchSearch = !search ||
-            ing.name.toLowerCase().includes(search) ||
-            ing.namespace.toLowerCase().includes(search) ||
-            ing.ingressClass.toLowerCase().includes(search) ||
-            ing.plugins.some(p => p.toLowerCase().includes(search)) ||
-            ing.paths.some(p =>
-                p.host.toLowerCase().includes(search) ||
-                p.path.toLowerCase().includes(search) ||
-                p.serviceName.toLowerCase().includes(search));
-        return matchNs && matchSearch;
-    });
+    const filtered = filteredIngresses();
 
     if (type === 'ingresses') {
         title.innerHTML = `<span class="icon"><svg class="glyph" aria-hidden="true"><use href="/assets/icons.svg#ingress"></use></svg></span> Ingresses list`;

@@ -45,8 +45,7 @@ function resetContext(context) {
     document.getElementById('refreshBtn').classList.remove('spinning');
     document.getElementById('refreshBtn').disabled = !context;
     document.getElementById('syncError').hidden = true;
-    document.getElementById('searchInput').value = '';
-    document.getElementById('namespaceSelect').value = 'all';
+    resetWorkspaceFilters();
     setRefreshMessage('');
     initDashboard();
 }
@@ -70,7 +69,7 @@ function fetchIngresses() {
                 throw new Error(result.message || `Unexpected response (${res.status})`);
             allIngresses = result.data;
             initDashboard();
-            if (currentPanelState) {
+            if (currentPanelState && currentPanelState.type !== 'stat') {
                 const {type, arg} = currentPanelState;
                 const fresh = type === 'ingress'
                     ? allIngresses.find(i => i.namespace === arg.namespace && i.name === arg.name)
