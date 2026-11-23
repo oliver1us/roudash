@@ -78,8 +78,14 @@ arrancar. Los archivos contienen credenciales: limita el acceso al volumen.
 - **Tema:** pulsa el sol para pasar al tema claro o la luna para volver al oscuro.
   El botón está en la pantalla de conexión y en la barra superior. El navegador
   recuerda tu elección; la primera visita usa el tema oscuro.
-- **Dashboard:** busca por host, servicio, ruta o nombre de Ingress. Los filtros
-  de la barra lateral se aplican también a los contadores.
+- **Workspace filters:** Check namespaces, hosts, or Kong plugins in the sidebar.
+  An Ingress can match any checked value within a category and must match every
+  category you use. An empty category includes all values. Use the search box
+  to narrow the results further.
+- **Active filters:** The row below the search box shows what applies to the
+  dashboard, its counters, and Graph View. Click a chip’s **×** to remove only
+  that filter, or **Clear all** to reset the selections and search. Use the
+  document icon beside a sidebar option to inspect it without changing filters.
 - **Graph View:** selecciona un nodo para resaltar sus vecinos y abrir sus
   detalles. Arrastra para desplazarte y usa la rueda para acercarte. **Fit
   view** centra el mapa; **Overview only** muestra solo clúster, namespaces e

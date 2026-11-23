@@ -33,6 +33,12 @@ class Kube(BaseHTTPRequestHandler):
                          "rules": [{"host": "web.example.test",
                                     "http": {"paths": [route, dict(route, path="/api")]}}]}}
         body = {"kind": "IngressList", "apiVersion": "networking.k8s.io/v1", "items": [item]}
+        if name == "west":
+            body["items"].append({
+                "metadata": {"name": "reports", "namespace": "ops",
+                             "annotations": {"konghq.com/plugins": "metrics"}},
+                "spec": {"rules": [{"host": "reports.example.test", "http": {"paths": [route]}}]}
+            })
         self.send_response(503 if srv.failed else 200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
@@ -83,7 +89,30 @@ def run(url, servers):
         page.locator("#uploadBtn").click()
         page.locator(".context-item").filter(has_text=a.name).click()
         page.locator("#activateBtn").click()
+        total = page.locator("#statTotal")
+        expect(total).to_have_text("2")
+        apps = page.locator("#folderNamespaces").get_by_role("checkbox", name="apps")
+        ops = page.locator("#folderNamespaces").get_by_role("checkbox", name="ops")
+        host = page.get_by_role("checkbox", name="web.example.test")
+        plugin = page.get_by_role("checkbox", name="metrics")
+        apps.check()
         expect(page.locator(".ingress-name")).to_have_text(a.name)
+        ops.check()
+        expect(total).to_have_text("2")
+        host.check()
+        plugin.check()
+        expect(total).to_have_text("0")
+        page.get_by_role("button", name="Remove host: web.example.test").click()
+        expect(host).not_to_be_checked()
+        expect(page.locator(".ingress-name")).to_have_text("reports")
+        page.locator("#searchInput").fill("missing")
+        expect(total).to_have_text("0")
+        page.get_by_role("button", name="Clear all").click()
+        expect(total).to_have_text("2")
+        expect(page.locator("#searchInput")).to_have_value("")
+        expect(plugin).not_to_be_checked()
+        expect(ops).not_to_be_checked()
+        apps.check()
         expect(page.locator("#viewGraph")).to_be_hidden()
         # Observe the renderer through its public API, then interact with the
         # actual canvas. No test-only graph handles in the production app.
@@ -97,7 +126,8 @@ def run(url, servers):
         page.locator("#graphDensity").click()
         expect(count).to_have_text("3 nodes · 2 links")
         page.locator("#graphDensity").click()
-        page.locator("#sidebar-ns-apps").click()
+        expect(page.get_by_role("button", name="Remove namespace: apps")).to_be_visible()
+        page.get_by_role("button", name="Inspect namespace: apps").click()
         expect(page.locator("#viewGraph")).to_be_visible()
         manifest = page.locator(".manifest-section code")
         expect(manifest).to_contain_text("kind: Namespace")
@@ -137,6 +167,7 @@ def run(url, servers):
             page.locator("#refreshBtn").click()
         expect(page.locator("#lastRefresh")).to_contain_text("Updated")
         expect(page.locator("#searchInput")).to_have_value("web.example")
+        expect(apps).to_be_checked()
         actual = page.evaluate("testNetwork.getScale()")
         assert abs(actual - scale) < .001, (scale, actual)
         assert len(docs) == 1
@@ -157,6 +188,8 @@ def run(url, servers):
         expect(page.locator("#syncError")).to_be_hidden()
         a.release.set()
         expect(page.locator("#lastRefresh")).to_contain_text("Updated")
+        expect(apps).not_to_be_checked()
+        expect(page.locator("#noFilters")).to_be_visible()
         # Use the real refresh timer, advancing the browser clock only.
         page.clock.install()
         page.locator("#autoRefreshCheck").check()
